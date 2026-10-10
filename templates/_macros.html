@@ -1,0 +1,35 @@
+{% macro patient_list(patients) %}
+  {% for p in patients %}
+  <details>
+    <summary>
+      <span>{{ p.name | dicom_name }}{% if p.reason %} <span class="reason">{{ p.reason }}</span>{% endif %}</span>
+      <span class="num">* {{ p.dob | dicom_date or "unbekannt" }}</span>
+      <span class="num">ID {{ p.id }}</span>
+      <span class="muted">{{ p.studies | length }} {{ "Studie" if p.studies | length == 1 else "Studien" }}</span>
+    </summary>
+    <table>
+      <tr><th>Datum</th><th>Zeit</th><th>Accession</th><th>Modalität</th><th>Beschreibung</th></tr>
+      {% for s in p.studies %}
+      <tr>
+        <td class="num">{{ s.date | dicom_date }}</td>
+        <td class="num">{{ s.time | dicom_time }}</td>
+        <td class="num">{{ s.accession }}</td>
+        <td>{{ s.modalities }}</td>
+        <td>{{ s.description }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </details>
+  {% else %}
+  <p class="muted">Keine.</p>
+  {% endfor %}
+{% endmacro %}
+
+{% macro section(title, color, patients, truncated) %}
+  <h2 style="--c: var(--{{ color }})">{{ title }}
+    <span class="count">({{ patients | length }}{{ "+" if truncated }})</span></h2>
+  {% if truncated %}
+  <p class="muted">Das PACS hat die Trefferliste gekürzt – die Liste ist möglicherweise unvollständig.</p>
+  {% endif %}
+  {{ patient_list(patients) }}
+{% endmacro %}

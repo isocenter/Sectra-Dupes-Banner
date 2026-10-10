@@ -1,0 +1,18 @@
+{% from "_macros.html" import section %}
+{% if error %}
+<p class="error">{{ error }}</p>
+{% elif not result %}
+<p class="error">Zu dieser PatientId wurden im PACS keine Studien gefunden.</p>
+{% else %}
+<p class="muted">
+  Aktuell geöffnet: {{ result.patient.name | dicom_name }},
+  * {{ result.patient.dob | dicom_date or "unbekannt" }}, ID {{ result.patient.id }}.
+  Aufgeführt sind andere PatientIDs im PACS; ein Klick auf eine Zeile zeigt die Studien.
+</p>
+{{ section("Gleicher Name und gleiches Geburtsdatum", "red",
+           result.same_name | selectattr("same_dob") | list,
+           result.same_dob_truncated) }}
+{{ section("Gleicher Name, anderes Geburtsdatum", "orange",
+           result.same_name | rejectattr("same_dob") | list,
+           result.same_name_truncated) }}
+{% endif %}

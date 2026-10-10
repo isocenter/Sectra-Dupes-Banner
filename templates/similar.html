@@ -1,0 +1,11 @@
+{% from "_macros.html" import section %}
+{% if error %}
+<h2 style="--c: var(--accent)">Ähnlicher Name und gleiches Geburtsdatum</h2>
+<p class="error">{{ error }}</p>
+{% elif result and result.similar is none %}
+<h2 style="--c: var(--accent)">Ähnlicher Name und gleiches Geburtsdatum</h2>
+<p class="muted">Kein Vergleich möglich – das Geburtsdatum fehlt.</p>
+{% elif result %}
+{{ section("Ähnlicher Name und gleiches Geburtsdatum", "accent",
+           result.similar, result.similar_truncated) }}
+{% endif %}
