@@ -359,6 +359,19 @@ async def health(request: Request):
     return JSONResponse({"status": "ok"})
 
 
+def _banner_response(context: dict, text: str, level: int) -> JSONResponse:
+    return JSONResponse(
+        {
+            "ApplicableForContext": context,
+            "TextContent": text,
+            "TextContent2": "",
+            "WebBannerInfoLevel": level,
+            "BigWindowHeight": 800,
+            "BigWindowWidth": 1000,
+        }
+    )
+
+
 async def banner(request: Request):
     try:
         context = await request.json()
@@ -368,7 +381,8 @@ async def banner(request: Request):
         return JSONResponse({"error": "No context provided"}, status_code=400)
     patient_id = str(context.get("PatientId") or "").strip()
     if not patient_id:
-        return JSONResponse({"error": "PatientId is required"}, status_code=400)
+        # kein Fall geöffnet: neutrales Banner statt "Error" in der IDS7
+        return _banner_response(context, "Dupes", 0)
 
     try:
         counts = await banner_counts(request.app.state.client, patient_id)
@@ -395,16 +409,7 @@ async def banner(request: Request):
             text = "D: Keine"
         # 1 = grün (keine), 2 = orange (Namensgleiche), 3 = rot (Name + Geburtsdatum gleich)
         level = 3 if counts["same_dob"] else 2 if counts["same_name"] else 1
-    return JSONResponse(
-        {
-            "ApplicableForContext": context,
-            "TextContent": text,
-            "TextContent2": "",
-            "WebBannerInfoLevel": level,
-            "BigWindowHeight": 800,
-            "BigWindowWidth": 1000,
-        }
-    )
+    return _banner_response(context, text, level)
 
 
 async def details(request: Request):

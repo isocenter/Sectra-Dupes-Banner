@@ -16,6 +16,7 @@ die aktuell geöffnete PatientID zählt nie mit.
 | `D: 0 / 3` | kein Treffer mit gleichem Geburtsdatum, aber 3 Namensgleiche | 2 (orange) |
 | `D: ? / 3` | wie oben, aber zur aktuellen PatientID fehlt das Geburtsdatum | 2 (orange) |
 | `D: ?` | zur aktuellen PatientID gibt es im PACS keine Studie bzw. keinen Namen | 0 |
+| `Dupes` | der Kontext enthält keine `PatientId` (kein Fall geöffnet) | 0 |
 | `…+` | ein `+` hinter einer Zahl: das PACS hat die Trefferliste gekürzt, es gibt mindestens so viele | |
 
 ## Endpunkte
@@ -30,8 +31,8 @@ die aktuell geöffnete PatientID zählt nie mit.
 
 | Status | Fall |
 |--------|------|
-| 200 | Normalfall, auch `D: ?` |
-| 400 | kein JSON-Objekt oder `PatientId` fehlt |
+| 200 | Normalfall, auch `D: ?` und `Dupes` (`PatientId` fehlt) |
+| 400 | kein JSON-Objekt |
 | 502 | PACS nicht erreichbar oder Fehlerantwort des PACS, z.B. `{"error": "PACS study query failed: HTTP 401"}` |
 
 ### `GET /banner?context=<JSON>`
