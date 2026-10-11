@@ -26,7 +26,7 @@ die aktuell geöffnete PatientID zählt nie mit.
 | `POST` | `/banner` | Banner-Kontext von Sectra (JSON) → Banner-Antwort (JSON). Wird bei jedem Öffnen eines Falls aufgerufen. |
 | `GET` | `/banner?context=<JSON>` | Detailseite (HTML), die die IDS7 beim Klick auf das Banner öffnet. |
 | `POST` | `/banner/exact` | HTML-Fragment mit den Namensgleichen; wird nachgeladen. |
-| `POST` | `/banner/similar` | HTML-Fragment mit den ähnlichen Namen (dauert Sekunden); wird nachgeladen. |
+| `POST` | `/banner/similar` | Ähnliche Namen (dauert Sekunden); wird nachgeladen. Antwort als NDJSON-Stream: je abgeschlossener PACS-Abfrage eine Zeile `{"done": n, "total": m}` für den Fortschrittsbalken, zuletzt `{"html": "<Fragment>"}`. |
 | `GET` | `/health` | `{"status":"ok"}` – für den Docker-Healthcheck. |
 
 | Status | Fall |
@@ -50,7 +50,7 @@ Jede Zeile (Name, Geburtsdatum, ID, Anzahl Studien) lässt sich aufklappen und z
 | 200 | `PatientId` im Kontext vorhanden | Normalfall; auch wenn es zur PatientId keine Studien gibt (Hinweis im Fragment) |
 | 400 | `context` fehlt, ist kein JSON oder enthält keine `PatientId` | `PatientId` fehlt im Body |
 | 404 | – | unbekannter Teil |
-| 502 | – | PACS-Abfrage fehlgeschlagen (Fehlertext im Fragment) |
+| 502 | – | PACS-Abfrage fehlgeschlagen (Fehlertext im Fragment). Nur `exact`: `similar` streamt und antwortet deshalb auch dann mit 200, der Fehlertext steht im Fragment. |
 
 ## Funktionsweise
 

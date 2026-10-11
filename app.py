@@ -7,7 +7,8 @@ POST /banner  Banner-Kontext von Sectra (u.a. PatientId) → Anzahl ANDERER Pati
 GET  /banner  ?context=<JSON> → HTML-Gerüst der Detailseite, sofort und ohne PACS-Abfrage.
 POST /banner/exact    Fragment: diese Einträge mit aufklappbaren Studien (schnell).
 POST /banner/similar  Fragment: Einträge mit ähnlichem Namen + gleichem Geburtsdatum
-                      (langsamere Abfragen, unscharfer Vergleich im Dienst).
+                      (langsamere Abfragen, unscharfer Vergleich im Dienst); als NDJSON-Stream
+                      mit Fortschritt, das Fragment kommt in der letzten Zeile.
 
 Alle Abfragen laufen per DICOMweb (QIDO-RS) auf Studienebene; gezählt wird je distinkter PatientID.
 Kein PHI in Logs: weder Request-Body/Query noch PACS-URLs (enthalten Namen) loggen.
@@ -27,7 +28,7 @@ from contextlib import asynccontextmanager
 import httpx
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
@@ -296,11 +297,12 @@ async def find_namesakes(client: httpx.AsyncClient, patient_id: str, details: bo
     }
 
 
-async def find_similar(client: httpx.AsyncClient, patient_id: str) -> dict | None:
+async def find_similar(client: httpx.AsyncClient, patient_id: str, on_progress=None) -> dict | None:
     """
     Sucht ANDERE PatientIDs mit ähnlichem Namen und gleichem Geburtsdatum (similar, mit
     "reason"); similar ist None, wenn das Geburtsdatum fehlt. Dauert Sekunden – nur Detailseite.
     None, wenn es zur PatientId keine Studie / keinen Namen gibt.
+    on_progress(done, total) meldet jede abgeschlossene Initialen-Abfrage.
     """
     own = await _lookup_patient(client, patient_id)
     if own is None:
@@ -313,15 +315,25 @@ async def find_similar(client: httpx.AsyncClient, patient_id: str) -> dict | Non
     # Alle am selben Tag Geborenen holen und im Dienst unscharf vergleichen.
     # Eigene Initialen ergänzen (z.B. "Ç", "Ø").
     own_initials = {part.strip()[:1].upper() for part in name.split("^")[:2]} - {"", "*", "?"}
-    results = await asyncio.gather(
-        *[
-            query_studies(
-                client,
-                {TAG_PATIENT_NAME: f"{initial}*", TAG_BIRTH_DATE: dob, "includefield": DETAIL_FIELDS},
-            )
-            for initial in sorted(set(SURNAME_INITIALS) | own_initials)
-        ]
-    )
+    initials = sorted(set(SURNAME_INITIALS) | own_initials)
+    done = 0
+
+    def report() -> None:
+        if on_progress:
+            on_progress(done, len(initials))
+
+    async def query_initial(initial: str) -> tuple[list[dict], bool]:
+        nonlocal done
+        result = await query_studies(
+            client,
+            {TAG_PATIENT_NAME: f"{initial}*", TAG_BIRTH_DATE: dob, "includefield": DETAIL_FIELDS},
+        )
+        done += 1
+        report()
+        return result
+
+    report()
+    results = await asyncio.gather(*[query_initial(initial) for initial in initials])
 
     def is_similar(pid: str, study: dict) -> bool:
         other = _first(study, TAG_PATIENT_NAME)
@@ -472,6 +484,8 @@ async def details_part(request: Request):
     status = 200
     if not patient_id:
         page["error"], status = "Keine PatientId übergeben.", 400
+    elif find is find_similar:
+        return _similar_stream(request.app.state.client, patient_id)
     else:
         try:
             page["result"] = await find(request.app.state.client, patient_id)
@@ -485,6 +499,46 @@ async def details_part(request: Request):
         status_code=status,
         # X-Fragment: daran erkennt die Seite echte Antworten (statt z.B. Fehlerseiten des Proxys)
         headers={"Cache-Control": "no-store", "X-Fragment": "1"},
+    )
+
+
+def _similar_stream(client: httpx.AsyncClient, patient_id: str) -> StreamingResponse:
+    """
+    Suche nach ähnlichen Namen als NDJSON-Stream: je abgeschlossener PACS-Abfrage eine Zeile
+    {"done": n, "total": m}, zum Schluss {"html": <Fragment>}. Der Status steht schon beim
+    ersten Byte fest, daher immer 200 – ein PACS-Fehler steht als Text im Fragment.
+    """
+
+    async def lines():
+        queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def search() -> None:
+            page = {"error": None, "result": None}
+            try:
+                page["result"] = await find_similar(
+                    client, patient_id, lambda done, total: queue.put_nowait({"done": done, "total": total})
+                )
+            except Exception as e:
+                logger.error("details similar failed: %s", e)
+                page["error"] = f"PACS-Abfrage fehlgeschlagen: {e}"
+            queue.put_nowait({"html": templates.get_template("similar.html").render(page)})
+
+        task = asyncio.create_task(search())
+        try:
+            while True:
+                item = await queue.get()
+                yield json.dumps(item) + "\n"
+                if "html" in item:
+                    break
+        finally:
+            # Fenster geschlossen: laufende PACS-Abfragen abbrechen
+            task.cancel()
+
+    return StreamingResponse(
+        lines(),
+        media_type="application/x-ndjson",
+        # X-Accel-Buffering: nginx soll den Stream nicht puffern
+        headers={"Cache-Control": "no-store", "X-Fragment": "1", "X-Accel-Buffering": "no"},
     )
 
 

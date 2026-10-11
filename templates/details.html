@@ -48,6 +48,9 @@
                      border: 2px solid var(--border); border-top-color: var(--accent);
                      animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .progress { height: 4px; margin: 0 0 6px; border-radius: 2px; overflow: hidden;
+              background: rgba(255, 255, 255, 0.08); }
+  .progress > div { height: 100%; width: 0; background: var(--accent); transition: width 0.15s linear; }
 </style>
 </head>
 <body>
@@ -66,6 +69,7 @@
 <div id="similar">
   <h2 style="--c: var(--accent)">Ähnlicher Name und gleiches Geburtsdatum</h2>
   <p class="loading">Wird gesucht – das dauert einige Sekunden …</p>
+  <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div></div></div>
 </div>
 <script>
   const patientId = {{ patient_id | tojson }};
@@ -81,12 +85,38 @@
         cache: "no-store",
       });
       if (!response.headers.get("X-Fragment")) throw new Error("HTTP " + response.status);
-      box.innerHTML = await response.text();
+      const ndjson = (response.headers.get("Content-Type") || "").includes("ndjson");
+      box.innerHTML = ndjson ? await readProgress(response, box) : await response.text();
     } catch (error) {
+      for (const el of box.querySelectorAll(".progress")) el.remove();
       for (const el of box.querySelectorAll(".loading")) {
         el.className = "error";
         el.textContent = "Laden fehlgeschlagen (" + error.message + "). Bitte das Fenster neu öffnen.";
       }
+    }
+  }
+
+  // NDJSON-Stream: Zeilen {"done": n, "total": m} bewegen den Balken, {"html": …} ist das Ergebnis
+  async function readProgress(response, box) {
+    const bar = box.querySelector(".progress");
+    const label = box.querySelector(".loading");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines.filter(Boolean)) {
+        const message = JSON.parse(line);
+        if ("html" in message) return message.html;
+        const percent = message.total ? Math.round(100 * message.done / message.total) : 0;
+        bar.firstElementChild.style.width = percent + "%";
+        bar.setAttribute("aria-valuenow", percent);
+        label.textContent = "Wird gesucht – Abfrage " + message.done + " von " + message.total + " …";
+      }
+      if (done) throw new Error("Antwort unvollständig");
     }
   }
 
