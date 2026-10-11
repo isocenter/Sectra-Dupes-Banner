@@ -31,8 +31,11 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+# LOG_LEVEL=DEBUG loggt je Anfrage Kontext (inkl. PatientId), Antwort und PACS-Abfragen
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("dupes_banner")
+logger.setLevel(LOG_LEVEL if LOG_LEVEL in logging.getLevelNamesMapping() else logging.INFO)
 # httpx loggt auf INFO die komplette URL inkl. Query (Name) – unterdrücken
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
@@ -224,16 +227,23 @@ async def query_studies(
     base = settings.PACS_BASE_URL.rstrip("/")
     url = f"{base}/SectraQidoRs/configs/dicomHeaders/mrnissuers/{settings.MRN_ISSUER}/studies"
     params = {**params, "limit": limit or settings.PACS_RESULT_LIMIT}
+    started = time.monotonic()
     try:
         response = await client.get(url, params=params)
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
+        logger.debug("pacs query %s -> HTTP %s: %.300s", params, e.response.status_code, e.response.text)
         raise RuntimeError(f"PACS study query failed: HTTP {e.response.status_code}") from None
     except httpx.RequestError as e:
         raise RuntimeError(f"PACS study query failed: {e.__class__.__name__}") from None
     # Sectra: 'Warning: 299 - "There are N additional results that can be requested"'
     truncated = "299" in response.headers.get("warning", "")
     studies = response.json() if response.content.strip() else []
+    logger.debug(
+        "pacs query %s -> HTTP %s, %d rows%s in %.2fs",
+        params, response.status_code, len(studies), " (truncated)" if truncated else "",
+        time.monotonic() - started,
+    )
     return studies, truncated
 
 
@@ -333,6 +343,7 @@ async def banner_counts(client: httpx.AsyncClient, patient_id: str) -> dict | No
     now = time.monotonic()
     cached = _banner_cache.get(patient_id)
     if cached and cached[0] > now:
+        logger.debug("banner cache hit for %s", patient_id)
         return cached[1]
 
     result = await find_namesakes(client, patient_id, details=False)
@@ -360,6 +371,7 @@ async def health(request: Request):
 
 
 def _banner_response(context: dict, text: str, level: int) -> JSONResponse:
+    logger.debug("banner -> 200 %r level %d", text, level)
     return JSONResponse(
         {
             "ApplicableForContext": context,
@@ -377,7 +389,13 @@ async def banner(request: Request):
         context = await request.json()
     except Exception:
         context = None
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "banner <- content-type %r, context %r, raw body %.500r",
+            request.headers.get("content-type"), context, await request.body(),
+        )
     if not isinstance(context, dict):
+        logger.debug("banner -> 400 no context")
         return JSONResponse({"error": "No context provided"}, status_code=400)
     patient_id = str(context.get("PatientId") or "").strip()
     if not patient_id:
@@ -422,6 +440,7 @@ async def details(request: Request):
     except ValueError:
         context = None
     patient_id = str(context.get("PatientId") or "").strip() if isinstance(context, dict) else ""
+    logger.debug("details <- query %r -> PatientId %r", request.url.query, patient_id)
     return templates.TemplateResponse(
         request,
         "details.html",

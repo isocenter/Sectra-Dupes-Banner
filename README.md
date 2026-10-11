@@ -141,6 +141,7 @@ Felder pro Studie in der schnellen Namenssuche:
 | `EXCLUDED_MODALITIES` | nein | `PX` | kommagetrennte Modalitäten, die nicht zählen; leer = aus |
 | `FUZZY_THRESHOLD` | nein | `0.8` | Mindest-Ähnlichkeit (0–1) je Namensteil für „ähnlicher Name“ auf der Detailseite |
 | `BANNER_CACHE_SECONDS` | nein | `300` | Haltezeit der Banner-Zahlen je PatientId; `0` = aus |
+| `LOG_LEVEL` | nein | `INFO` | `DEBUG` loggt je Anfrage den Sectra-Kontext (inkl. PatientId und Suchparametern wie Name), die Banner-Antwort und jede PACS-Abfrage mit Dauer und Zeilenzahl – nur zur Fehlersuche einschalten |
 
 ## Deployment
 
