@@ -378,7 +378,7 @@ def _banner_response(context: dict, text: str, level: int) -> JSONResponse:
             "TextContent": text,
             "TextContent2": "",
             "WebBannerInfoLevel": level,
-            "BigWindowHeight": 800,
+            "BigWindowHeight": 533,
             "BigWindowWidth": 1000,
         }
     )
